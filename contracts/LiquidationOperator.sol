@@ -136,8 +136,41 @@ contract LiquidationOperator is IUniswapV2Callee {
     uint8 public constant health_factor_decimals = 18;
 
     // TODO: define constants used in the contract including ERC-20 tokens, Uniswap Pairs, Aave lending pools, etc. */
-    //    *** Your code here ***
+    //    
+    
+    
+    // Aave v2 main lending pool
+    ILendingPool public constant lendingPool = ILendingPool(0x7d2768dE32b0b80b7a3454c06BdAc94A69D1F); // Aave v2 LendingPool address on Etherscan mainnet
+    
+    // Uniswap V2 factory & router
+    IUniswapV2Factory public constant UNISWAP_FACTORY =
+        IUniswapV2Factory(0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f);
+    
+    IUniswapV2Router02 public constant UNISWAP_ROUTER =
+        IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
+
+        // Tokens
+    IERC20 public constant USDT =
+        IERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7); // 6 decimals
+    IERC20 public constant WBTC =
+        IERC20(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599); // 8 decimals
+    IWETH public constant WETH =
+        IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+
+
+        // Uniswap pair we use for flash swap: WBTC / USDT
+    IUniswapV2Pair public immutable PAIR_WBTC_USDT;
+
+    // Liquidation target (borrower) from the original tx
+    address public constant LIQUIDATION_USER =
+        0x59CE4a2AC5bC3f5F225439B2993b86B42f6d3e9F;
+
+    // A specific deadline for router swap (any timestamp in future is fine for labs)
+    uint256 public constant DEADLINE = 2000000000; // ~2033
+
     // END TODO
+
+    // My TODO: razumi zakaj so constante definirrane kot so. npr zakaj nekje public. zakaj PAIR_WBTC_USDT immutable zakaj drugačen kot drugi ni neki(). A so to vse interfacei drugje?
 
     // some helper function, it is totally fine if you can finish the lab without using these function
     // https://github.com/Uniswap/v2-periphery/blob/master/contracts/libraries/UniswapV2Library.sol
