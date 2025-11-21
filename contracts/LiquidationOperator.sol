@@ -244,9 +244,11 @@ contract LiquidationOperator is IUniswapV2Callee {
     IUniswapV2Factory public constant UNISWAP_FACTORY =
         IUniswapV2Factory(0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f);
     
+    
+    /*
     IUniswapV2Router02 public constant UNISWAP_ROUTER =
         IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
-
+*/
         // Tokens
 
         // IERC20() wrapper transforms an address into an ERC-20 token interface
@@ -268,10 +270,6 @@ contract LiquidationOperator is IUniswapV2Callee {
     address public constant LIQUIDATION_USER =
         0x59CE4a2AC5bC3f5F225439B2993b86B42f6d3e9F;
 
-    // A specific deadline for router swap (any timestamp in future is fine for labs)
-    uint256 public constant DEADLINE = 2000000000; // ~2033 
-
-    //TODO is this necesary? not in new code
 
 
     // Example amount to cover (from the reference tx, adjust if your lab uses a different setup)
@@ -468,6 +466,13 @@ contract LiquidationOperator is IUniswapV2Callee {
 
                 // Swap WBTC → WETH
                 WBTC_WETH_PAIR.swap(0, wethOut, address(this), new bytes(0));
+
+                // unwrap all WETH held (covers this swap and any residual)
+                uint256 wethBalance = WETH.balanceOf(address(this));
+                if (wethBalance > 0) {
+                    WETH.withdraw(wethBalance); // unwrap WETH to ETH
+                }
+
             } else {
                 // WBTC is token1
                 uint256 wethOut = getAmountOut(
@@ -481,10 +486,22 @@ contract LiquidationOperator is IUniswapV2Callee {
 
                 // Swap WBTC → WETH
                 WBTC_WETH_PAIR.swap(wethOut, 0, address(this), new bytes(0));
+
+                // unwrap all WETH held (covers this swap and any residual)
+                uint256 wethBalance = WETH.balanceOf(address(this));
+                if (wethBalance > 0) {
+                    WETH.withdraw(wethBalance); // unwrap WETH to ETH
+                }
+
+
             }
 
-
-
+            // forward all ETH balance to the caller
+            uint256 ethBalance = address(this).balance;
+            if (ethBalance > 0) {
+                (bool sent, ) = payable(caller).call{value: ethBalance}("");
+                require(sent, "ETH transfer to caller failed");
+            }
         }
 
 
@@ -497,9 +514,12 @@ contract LiquidationOperator is IUniswapV2Callee {
         address sender,
         uint256 amount0,
         uint256 amount1,    
-        bytes calldata
+        bytes calldata data
     ) external override {
-        // TODO: implement your liquidation logic
+        // Closed TODO: implement your liquidation logic
+
+        // Persist the original operate() caller if you ever want to use it here. Currently commented out since not used.
+        // address callerFromOperate = abi.decode(data, (address));
 
         // 2.0. security checks and initializing variables
         // Ensure only the correct pair can call us (msg.sender is who is runign the smart contract function and in this case it should be the pair contract since we are doing a flash swap from there and are now in the callback function)
@@ -522,6 +542,7 @@ contract LiquidationOperator is IUniswapV2Callee {
         
         // Approve Aave to pull the borrowed USDT
         //Difference between approve and transfer is that approve allows another address to spend tokens on your behalf, while transfer moves tokens directly from your account to another address. Here we want Aave to pull the USDT from our contract, so we use approve.
+        USDT.approve(address(LENDING_POOL), 0); // reset to 0 first for USDT safety
         USDT.approve(address(LENDING_POOL), usdtBorrowed);
 
         // We repay user’s USDT debt, receive WBTC as collateral
@@ -571,5 +592,3 @@ contract LiquidationOperator is IUniswapV2Callee {
         // END TODO
     }
 }
-
-

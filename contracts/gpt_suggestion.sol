@@ -39,7 +39,7 @@ contract LiquidationOperator is IUniswapV2Callee {
     function getAmountOut(
         uint256 amountIn,
         uint256 reserveIn,
-        uint256 reserveOut
+        uint256 reserveOutthere a better way to do this?
     ) internal pure returns (uint256 amountOut) {
         require(amountIn > 0, "UniswapV2Library: INSUFFICIENT_INPUT_AMOUNT");
         require(
@@ -69,6 +69,7 @@ contract LiquidationOperator is IUniswapV2Callee {
 
     constructor() {
         // Initialize the WBTC/USDT pair from the factory
+        
         IUniswapV2Pair pair = IUniswapV2Pair(
             UNISWAP_FACTORY.getPair(address(WBTC), address(USDT))
         );
@@ -76,13 +77,14 @@ contract LiquidationOperator is IUniswapV2Callee {
         WBTC_USDT_PAIR = pair;
     }
 
+
     // allow contract to receive ETH when unwrapping WETH
     receive() external payable {}
 
     // required by the testing script, entry for your liquidation call
     function operate() external {
         // 0. security checks and initializing variables
-        address caller = msg.sender;
+        address caller = msg.sender; // save caller to send profit later
 
         // 1. get the target user account data & make sure it is liquidatable
         (
