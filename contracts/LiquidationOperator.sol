@@ -238,7 +238,8 @@ contract LiquidationOperator is IUniswapV2Callee {
     
     
     // Aave v2 main lending pool
-    ILendingPool public constant LENDING_POOL = ILendingPool(0x7d2768de32b0b80b7a3454c06bdac94a69ddc7a9); // Aave v2 LendingPool address on Etherscan mainnet
+    // checksummed Aave v2 LendingPool address on Ethereum mainnet
+    ILendingPool public constant LENDING_POOL = ILendingPool(0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9);
     
     // Uniswap V2 factory & router
     IUniswapV2Factory public constant UNISWAP_FACTORY =
@@ -365,10 +366,6 @@ contract LiquidationOperator is IUniswapV2Callee {
     function operate() external {
         // Closed TODO: implement your liquidation logic
 
-        // 0. security checks and initializing variables
-        address caller = msg.sender; // save caller to send profit later
-
-
         // 1. get the target user account data & make sure it is liquidatable
         (
             ,
@@ -390,14 +387,27 @@ contract LiquidationOperator is IUniswapV2Callee {
         // we should borrow USDT, liquidate the target user and get the WBTC, then swap WBTC to repay uniswap
         // (please feel free to develop other workflows as long as they liquidate the target user successfully)
         
+        // Cap borrow to available USDT liquidity in the pair to avoid INSUFFICIENT_LIQUIDITY
+        (uint112 reserve0, uint112 reserve1, ) = WBTC_USDT_PAIR.getReserves();
+        address token0WBTC_USDT_Pair = WBTC_USDT_PAIR.token0();
+        uint256 reserveUSDT = token0WBTC_USDT_Pair == address(USDT)
+            ? uint256(reserve0)
+            : uint256(reserve1);
+
         uint256 amountToBorrowUSDT = DEBT_TO_COVER_USDT; // 2,916,378.221684 USDT (with 6 decimals)
+        // Leave headroom: cap to ~33% of available USDT liquidity to avoid extreme slippage
+        uint256 maxBorrow = reserveUSDT / 3;
+        if (amountToBorrowUSDT > maxBorrow) {
+            amountToBorrowUSDT = maxBorrow;
+        }
+
+        require(amountToBorrowUSDT > 0, "Not enough USDT liquidity to borrow");
 
         // Figure out which token is token0 / token1 so we know where to put amountOut
-        address token0 = WBTC_USDT_PAIR.token0();
         uint256 amount0Out = 0;
         uint256 amount1Out = 0;
 
-        if (token0 == address(USDT)) {
+        if (token0WBTC_USDT_Pair == address(USDT)) {
             amount0Out = amountToBorrowUSDT;
         } else {
             amount1Out = amountToBorrowUSDT;
@@ -405,11 +415,13 @@ contract LiquidationOperator is IUniswapV2Callee {
         
         // We borrow USDT from the WBTC/USDT pair using a flash swap.
 
-        // bytes memory transforms to bytes calldata after callback
-
-        bytes memory data = abi.encode(caller);
-
-        WBTC_USDT_PAIR.swap(amount0Out, amount1Out, address(this), data);
+        // non-empty data triggers flash swap callback
+        WBTC_USDT_PAIR.swap(
+            amount0Out,
+            amount1Out,
+            address(this),
+            abi.encode(uint256(1))
+        );
 
         
         
@@ -446,20 +458,23 @@ contract LiquidationOperator is IUniswapV2Callee {
 
         uint256 wbtcProfit = WBTC.balanceOf(address(this));
         if (wbtcProfit > 0) {
-            address token0 = WBTC_WETH_PAIR.token0();
+            address token0WBTC_WETH_Pair = WBTC_WETH_PAIR.token0();
 
             (uint112 reserve0, uint112 reserve1, ) = WBTC_WETH_PAIR
                 .getReserves();
             
             // TODO : Vprasi a je res treba z if stavkom to delat al je praksa 
             // da se nekje online odčita vrstni red paira in uporabi tisto?
-            if (token0 == address(WBTC)) {
+            if (token0WBTC_WETH_Pair == address(WBTC)) {
                 // WBTC is token0
                 uint256 wethOut = getAmountOut(
                     wbtcProfit,
                     reserve0,
                     reserve1
                 );
+                if (wethOut == 0) {
+                    revert("Not enough WBTC profit to swap");
+                }
 
                 // Approve WBTC_WETH_PAIR to spend WBTC
                 WBTC.transfer(address(WBTC_WETH_PAIR), wbtcProfit);
@@ -480,6 +495,9 @@ contract LiquidationOperator is IUniswapV2Callee {
                     reserve1,
                     reserve0
                 );
+                if (wethOut == 0) {
+                    revert("Not enough WBTC profit to swap");
+                }
 
                 // Approve WBTC_WETH_PAIR to spend WBTC
                 WBTC.transfer(address(WBTC_WETH_PAIR), wbtcProfit);
@@ -499,7 +517,7 @@ contract LiquidationOperator is IUniswapV2Callee {
             // forward all ETH balance to the caller
             uint256 ethBalance = address(this).balance;
             if (ethBalance > 0) {
-                (bool sent, ) = payable(caller).call{value: ethBalance}("");
+                (bool sent, ) = payable(msg.sender).call{value: ethBalance}("");
                 require(sent, "ETH transfer to caller failed");
             }
         }
@@ -514,7 +532,7 @@ contract LiquidationOperator is IUniswapV2Callee {
         address sender,
         uint256 amount0,
         uint256 amount1,    
-        bytes calldata data
+        bytes calldata /* data */
     ) external override {
         // Closed TODO: implement your liquidation logic
 
@@ -529,10 +547,10 @@ contract LiquidationOperator is IUniswapV2Callee {
         require(sender == address(this), "invalid sender");
 
         // Determine how much USDT we borrowed
-        address token0 = WBTC_USDT_PAIR.token0();
+        address token0WBTC_USDT_Pair = WBTC_USDT_PAIR.token0();
         uint256 usdtBorrowed;
 
-        if (token0 == address(USDT)) {
+        if (token0WBTC_USDT_Pair == address(USDT)) {
             usdtBorrowed = amount0;
         } else {
             usdtBorrowed = amount1;
@@ -564,7 +582,7 @@ contract LiquidationOperator is IUniswapV2Callee {
         uint256 reserveWBTC;
         uint256 reserveUSDT;
 
-        if (token0 == address(WBTC)) {
+        if (token0WBTC_USDT_Pair == address(WBTC)) {
             reserveWBTC = uint256(reserve0);
             reserveUSDT = uint256(reserve1);
         } else {
